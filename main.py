@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import os
+import sys
 
 from datetime import datetime
 from kasa import SmartPlug
@@ -11,9 +12,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def initialise_plug():
-    plug_ip = os.environ["SMART_PLUG_IP"]
+def env_var_fail_message(env_var_name):
+    datetime_string = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    return (
+        f"{datetime_string}: Environmental variable was not found for {env_var_name}.\n"
+    )
 
+
+async def initialise_plug(plug_ip):
     plug = SmartPlug(plug_ip)
     await plug.update()
     return plug
@@ -22,7 +28,16 @@ async def initialise_plug():
 def write_realtime_csv(plug, record_time):
     realtime_energy = plug.emeter_realtime
 
-    dirpath = os.environ["REALTIME_DIRPATH"]
+    try:
+        dirpath = os.environ["REALTIME_DIRPATH"]
+    except KeyError:
+        # Create default dirpath as fallback
+        dirpath = "./data/"
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+        with open("smarterkasalog.txt", "a") as f:
+            f.write(env_var_fail_message("REALTIME_DIRPATH"))
+
     filename = secure_filename(
         f"{record_time.strftime('%Y%m%d')}_{plug.alias.lower()}_realtime_energy.csv"
     )
@@ -64,5 +79,13 @@ def write_realtime_csv(plug, record_time):
 
 if __name__ == "__main__":
     record_time = datetime.now()
-    plug = asyncio.run(initialise_plug())
-    write_realtime_csv(plug, record_time)
+    try:
+        plug_ips = os.environ["SMART_PLUG_IPS"].split(",")
+    except KeyError:
+        # Very basic log, and quit execution
+        with open("smarterkasalog.txt", "a") as f:
+            f.write(env_var_fail_message("SMART_PLUG_IPS"))
+        sys.exit(1)
+    for plug_ip in plug_ips:
+        plug = asyncio.run(initialise_plug(plug_ip))
+        write_realtime_csv(plug, record_time)
